@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.Permissions;
 using System.Text;
 using System.Threading;
@@ -40,10 +43,32 @@ namespace DiskExpander
                     DriveLayout.NativeMethods.FileCreationDisposition.OPEN_EXISTING, FileAttributes.Normal,
                     IntPtr.Zero);
                 var geo = GetDiskGeometry(handle);
-                GrowPartition(geo, handle);
-
+                var sectors = GrowPartition(geo, handle);
                 handle.Close();
                 handle.Dispose();
+                //ExpandDrive(sectors);
+
+                
+                //    var StartInfo = new ProcessStartInfo
+                //    {
+                //        FileName = "DiskExpander.exe",
+                //        Arguments = sectors.ToString(),
+                //        UseShellExecute = false,
+                //        RedirectStandardOutput = true,
+                //        CreateNoWindow = true,
+                //        RedirectStandardError = true
+                //    };
+                //Process process = new Process();
+                //process.StartInfo = StartInfo;
+                //process.Start();
+
+                //string output = process.StandardOutput.ReadToEnd();
+                //Console.WriteLine(output);
+                //string err = process.StandardError.ReadToEnd();
+                //Console.WriteLine(err);
+                //process.WaitForExit();
+           
+                
             }
             else
             {
@@ -54,7 +79,7 @@ namespace DiskExpander
             
         }
 
-        private static void GrowPartition(DiskGeometry geo, DriveLayout.FileSafeHandle handle)
+        private static long GrowPartition(DiskGeometry geo, DriveLayout.FileSafeHandle handle)
         {
             var name = "\\\\.\\PhysicalDrive0";
 
@@ -67,11 +92,12 @@ namespace DiskExpander
             Console.WriteLine("Target Size=" + targetSize);
             var expandBy = targetSize-currentSize;
             Console.WriteLine("Need to expand by " + expandBy);
+            var recommendedSectors = (li.PartitionEntry[0].PartitionLength - li.PartitionEntry[0].StartingOffset) / geo.BytesPerSector;
             if (expandBy == 0)
             {
                 Console.WriteLine("Sectors: " + (li.PartitionEntry[0].PartitionLength / geo.BytesPerSector));
-                Console.WriteLine("Recommended sectors = " + (li.PartitionEntry[0].PartitionLength - li.PartitionEntry[0].StartingOffset) / geo.BytesPerSector);
-                return;
+                Console.WriteLine("Recommended sectors = " + recommendedSectors);
+                return recommendedSectors;
             }
             GrowPartition gp = new GrowPartition()
             {
@@ -94,7 +120,8 @@ namespace DiskExpander
             });
 
             Console.WriteLine("Sectors: " + (li.PartitionEntry[0].PartitionLength / geo.BytesPerSector));
-            Console.WriteLine("Recommended sectors = " + (li.PartitionEntry[0].PartitionLength - li.PartitionEntry[0].StartingOffset) / geo.BytesPerSector);
+            Console.WriteLine("Recommended sectors = " + recommendedSectors);
+            return recommendedSectors;
         }
 
         private static void ExpandPartition(DriveLayout.FileSafeHandle handle, DiskGeometry geometry)
@@ -158,7 +185,8 @@ namespace DiskExpander
             );
             return li;
         }
-
+        [HandleProcessCorruptedStateExceptions]
+        [SecurityCritical]
         private static void ExpandDrive(long sectors)
         {
             var name = "\\\\.\\C:";
@@ -192,7 +220,7 @@ namespace DiskExpander
                         );
                         Console.WriteLine("Success: " + vaoutp);
                     }
-                    catch (Exception e)
+                    catch (AccessViolationException e)
                     {
                         Console.WriteLine("Access Violation Exception, this means this probably worked.");
                     }
