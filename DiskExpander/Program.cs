@@ -20,24 +20,32 @@ namespace DiskExpander
         public int BytesPerSector;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct GrowPartition
+    {
+        public int PartitionNumber;
+        public long BytesToGrow;
+    }
+
     class Program
     {
         static void Main(string[] args)
         {
             if (args.Length == 0)
             {
-                var name = "\\\\.\\C:";
+                var name = "\\\\.\\PHYSICALDRIVE0";
+                //var name = "\\\\.\\C:";
                 var handle = DriveLayout.NativeMethods.CreateFile(name,
                     DriveLayout.NativeMethods.AccessRights.GENERIC_READ |
                     DriveLayout.NativeMethods.AccessRights.GENERIC_WRITE, FileShare.Read | FileShare.Write, IntPtr.Zero,
                     DriveLayout.NativeMethods.FileCreationDisposition.OPEN_EXISTING, FileAttributes.Normal,
                     IntPtr.Zero);
-                
+                //GrowPartition();
                 var geo = GetDiskGeometry(handle);
                 ExpandPartition(handle, geo);
                 handle.Close();
                 //Console.WriteLine("Closed: " + handle.IsClosed);
-                Console.WriteLine((Int64)geo.TracksPerCylinder * (Int64)geo.SectorsPerTrack * (Int64)geo.Cylinders);
+                //Console.WriteLine((Int64)geo.TracksPerCylinder * (Int64)geo.SectorsPerTrack * (Int64)geo.Cylinders);
                 handle.Dispose();
             }
             else
@@ -47,6 +55,35 @@ namespace DiskExpander
             }
             
             
+        }
+
+        private static void GrowPartition()
+        {
+            var name = "\\\\.\\PhysicalDrive0";
+            //var name = "\\\\?\\GLOBALROOT\\Device\\Harddisk0";
+            GrowPartition gp = new GrowPartition()
+            {
+                BytesToGrow = 1000000000,
+                PartitionNumber = 1
+            };
+            var handle = DriveLayout.NativeMethods.CreateFile(name,
+                    DriveLayout.NativeMethods.AccessRights.GENERIC_READ |
+                    DriveLayout.NativeMethods.AccessRights.GENERIC_WRITE, FileShare.Read | FileShare.Write, IntPtr.Zero,
+                    DriveLayout.NativeMethods.FileCreationDisposition.OPEN_EXISTING, FileAttributes.Normal,
+                    IntPtr.Zero);
+
+            int bytesReturned1 = 0;
+            ExecuteNativeActionAndCheckLastError(() =>
+            {
+                DriveLayout.NativeMethods.DeviceIoControl(handle, 
+                    DriveLayout.NativeMethods.IoControlCode.DiskGrowPartition, 
+                    ref gp, 
+                    Marshal.SizeOf(gp), 
+                    IntPtr.Zero, 
+                    0, 
+                    ref bytesReturned1, 
+                    IntPtr.Zero);
+            });
         }
 
         private static void ExpandPartition(DriveLayout.FileSafeHandle handle, DiskGeometry geometry)
@@ -68,8 +105,8 @@ namespace DiskExpander
                 ref bytesReturned1,
                 IntPtr.Zero
             );
-
-            Console.WriteLine("Current Parittion 0 to size " + li.PartitionEntry[0].PartitionLength);
+            Console.WriteLine("PartCount " +li.PartitionCount);
+            Console.WriteLine("Current Parittion 0 size " + li.PartitionEntry[0].PartitionLength);
             Console.WriteLine("Starting Offset: " + li.PartitionEntry[0].StartingOffset);
             var SizeToBe = ((long) geometry.TracksPerCylinder * (long) geometry.SectorsPerTrack * (long) geometry.BytesPerSector * geometry.Cylinders) - li.PartitionEntry[0].StartingOffset;
             if (SizeToBe == li.PartitionEntry[0].PartitionLength)
@@ -79,8 +116,8 @@ namespace DiskExpander
             else
             {
                 li.PartitionEntry[0].PartitionLength = SizeToBe;
+                
                 Console.WriteLine("Expanding Parittion 0 to size " + li.PartitionEntry[0].PartitionLength);
-
                 bool outp = false;
                 ExecuteNativeActionAndCheckLastError(() =>
                 {
@@ -137,7 +174,7 @@ namespace DiskExpander
                             bytesReturned1,
                             IntPtr.Zero
                         );
-                        Console.WriteLine(vaoutp);
+                        Console.WriteLine("Success: " +vaoutp);
                     }
 
                 });
@@ -394,6 +431,7 @@ namespace DiskExpander
                 IOCTL_DISK_SET_DRIVE_LAYOUT_EX = 0x7c054,
                 IoCtlDiskGetDriveGeometry = 0x70000,
                 FsctlExtendVolume = (EFileDevice.FileSystem << 16) | (60 << 2) | EMethod.Buffered | (0 << 14),
+                DiskGrowPartition = (EFileDevice.Disk << 16) | (0x0034 << 2) | EMethod.Buffered | (FileAccess.ReadWrite << 14),
             }
 
             public const Int32 ERROR_SUCCESS = 0;
@@ -497,6 +535,19 @@ namespace DiskExpander
                 IntPtr lpInBuffer,
                 int nInBufferSize,
                 ref DRIVE_LAYOUT_INFORMATION_EX lpOutBuffer,
+                Int32 nOutBufferSize,
+                ref Int32 lpBytesReturned,
+                IntPtr lpOverlapped
+            );
+
+            [DllImport("kernel32.dll", EntryPoint = "DeviceIoControl", SetLastError = true)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern Boolean DeviceIoControl(
+                FileSafeHandle hDevice,
+                IoControlCode dwIoControlCode,
+                ref GrowPartition lpInBuffer,
+                int nInBufferSize,
+                IntPtr lpOutBuffer,
                 Int32 nOutBufferSize,
                 ref Int32 lpBytesReturned,
                 IntPtr lpOverlapped
